@@ -6,7 +6,7 @@ const pusher = new Pusher({
   key: process.env.NEXT_PUBLIC_PUSHER_KEY || "",
   secret: process.env.PUSHER_SECRET || "",
   cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER || "ap3",
-  useTLS: true,
+  useTLS: true, // SSLを有効にする（重要）
 });
 
 export async function POST(request: Request) {
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     const { room } = body;
     const channelName = `janken-room-${room || 'lobby'}`;
 
-    // 受信したbody（hand, userName, scores等）を丸ごと相手に転送
+    // 受信したデータをそのまま相手に送る
     await pusher.trigger(channelName, 'opponent-move', body);
 
     return NextResponse.json({ success: true });
