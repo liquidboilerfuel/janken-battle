@@ -18,7 +18,7 @@ export default function Home() {
   const [timeLeft, setTimeLeft] = useState(10);
   const [myHand, setMyHand] = useState<string | null>(null);
 
-  // --- 参照管理 (通信・ロジック用) ---
+  // --- 参照管理 ---
   const myHandRef = useRef<string | null>(null);
   const opHandRef = useRef<string | null>(null);
   const isMatchedRef = useRef(false);
@@ -32,11 +32,11 @@ export default function Home() {
     { name: 'paper', icon: '✋', label: 'パー' },
   ];
 
-  // --- 1. サウンドエフェクト関数 ---
+  // --- サウンドエフェクト ---
   const playSound = (type: 'win' | 'lose' | 'draw' | 'select' | 'count') => {
     const audio = new Audio(`/sounds/${type}.mp3`);
     audio.volume = 0.5;
-    audio.play().catch(() => {}); // ユーザー操作前の再生エラー防止
+    audio.play().catch(() => {});
   };
 
   // --- 通信関数 ---
@@ -48,7 +48,7 @@ export default function Home() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         type, playerId: id, room, 
-        userName: userName, // 名前を送信
+        userName: userName,
         currentScores: scoresRef.current,
         currentStreaks: streakRef.current,
         ...extra 
@@ -69,7 +69,7 @@ export default function Home() {
     return () => clearInterval(timer);
   }, [isMatched, isWaiting, myHand, timeLeft, scores]);
 
-  // --- Pusher接続 & マッチングロジック ---
+  // --- Pusher接続 ---
   useEffect(() => {
     if (!hasEntered) return;
 
@@ -84,18 +84,12 @@ export default function Home() {
     });
     const channel = pusher.subscribe(`janken-room-${roomName}`);
 
-    // 初回Ping
-    fetch('/api/move', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'ping', playerId: newId, room: roomName, userName: userName }),
-    });
+    broadcast('ping', {}, newId);
 
     channel.bind('opponent-move', (data: any) => {
       if (data.playerId === newId) return;
       lastSeenRef.current = Date.now();
 
-      // 名前とマッチング状態の同期
       if (data.userName) setOpName(data.userName);
       if (!isMatchedRef.current) {
         setIsMatched(true);
@@ -103,23 +97,12 @@ export default function Home() {
         setStatus("BATTLE START");
       }
 
-      // 生存確認へのレスポンス
       if (data.type === 'ping' || data.type === 'presence') {
-        fetch('/api/move', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            type: 'presence', playerId: newId, room: roomName, 
-            userName: userName,
-            currentScores: scoresRef.current, currentStreaks: streakRef.current 
-          }),
-        });
+        broadcast('presence', {}, newId);
       }
 
-      // 相手の切断
       if (data.type === 'i-disconnected') handleOpponentDisconnected();
 
-      // スコアと連勝の同期
       if (data.currentScores && data.currentStreaks) {
         const newScoreObj = { me: data.currentScores.op, op: data.currentScores.me };
         const newStreakObj = { me: data.currentStreaks.op, op: data.currentStreaks.me };
@@ -130,7 +113,6 @@ export default function Home() {
         streakRef.current = newStreakObj;
       }
 
-      // 相手の手
       if (data.type === 'move') {
         opHandRef.current = data.hand;
         checkResult();
@@ -152,10 +134,7 @@ export default function Home() {
   const handleOpponentDisconnected = () => {
     setIsMatched(false);
     isMatchedRef.current = false;
-    scoresRef.current.op = 0;
-    setScores({...scoresRef.current});
     setOpStreak(0);
-    streakRef.current.op = 0;
     setStatus("ENEMY DISCONNECTED");
   };
 
@@ -236,7 +215,7 @@ export default function Home() {
           />
           <button 
             onClick={() => userName.trim() && setHasEntered(true)}
-            className="w-full bg-white text-black font-black py-4 rounded-2xl hover:bg-cyan-400 transition-colors tracking-widest shadow-xl shadow-cyan-900/20"
+            className="w-full bg-white text-black font-black py-4 rounded-2xl active:scale-95 transition-all tracking-widest shadow-xl shadow-cyan-900/20"
           >
             ENTER ARENA
           </button>
@@ -262,57 +241,65 @@ export default function Home() {
           <span className="text-sm font-black tracking-tighter text-red-500">{opName}</span>
         </div>
         <div 
-          className={`text-[10rem] font-black tabular-nums transition-all duration-700 ${opStreak >= 3 ? 'text-red-500 scale-110' : 'text-white opacity-10'}`}
+          className={`text-[9rem] leading-none font-black tabular-nums transition-all duration-700 ${opStreak >= 3 ? 'text-red-500 scale-110' : 'text-white opacity-10'}`}
           style={{ filter: opStreak >= 3 ? `drop-shadow(0 0 20px rgba(239, 68, 68, 0.8))` : 'none' }}
         >
           {scores.op}
         </div>
         {opStreak >= 2 && (
-          <div className="absolute bottom-6 animate-bounce bg-red-600 px-3 py-1 rounded-full text-[9px] font-black italic shadow-lg">
+          <div className="absolute bottom-4 animate-bounce bg-red-600 px-3 py-1 rounded-full text-[9px] font-black italic shadow-lg">
              WIN STREAK: {opStreak}
           </div>
         )}
       </div>
 
       {/* センター情報バー */}
-      <div className="h-40 flex flex-col items-center justify-center border-y border-white/5 bg-black/40 z-10 shadow-2xl relative">
-        <div className={`text-7xl font-black tabular-nums ${timeLeft <= 3 && !myHand ? 'text-red-500 animate-pulse' : 'text-white'}`}>
+      <div className="h-32 flex flex-col items-center justify-center border-y border-white/5 bg-black/40 z-10 shadow-2xl relative">
+        <div className={`text-6xl font-black tabular-nums ${timeLeft <= 3 && !myHand ? 'text-red-500 animate-pulse' : 'text-white'}`}>
           {myHand ? "READY" : timeLeft}
         </div>
         <p className="text-[10px] font-black tracking-[0.4em] text-cyan-400 uppercase mt-2">{status}</p>
       </div>
 
-      {/* 自分側セクション */}
-      <div className="flex-1 flex flex-col items-center justify-center relative bg-gradient-to-t from-cyan-500/5 to-transparent">
+      {/* 自分側セクション (スマホ最適化済み) */}
+      <div className="flex-1 flex flex-col items-center justify-end relative bg-gradient-to-t from-cyan-500/5 to-transparent">
         <div className="absolute top-4 text-[10px] font-black tracking-widest text-cyan-500 opacity-60 uppercase">{userName}</div>
-        {streak >= 2 && (
-          <div className="absolute top-12 text-cyan-400 text-[10px] font-black tracking-widest animate-pulse">
-            🔥 {streak} WINS ON FIRE
-          </div>
-        )}
+        
         <div 
-          className={`text-[12rem] font-black tabular-nums transition-all ${streak >= 3 ? 'text-cyan-400' : 'text-white'}`}
+          className={`text-[9rem] leading-none font-black tabular-nums transition-all mb-2 ${streak >= 3 ? 'text-cyan-400' : 'text-white'}`}
           style={{ filter: streak >= 3 ? `drop-shadow(0 0 30px rgba(34, 211, 238, 0.6))` : 'none' }}
         >
           {scores.me}
         </div>
+
+        {streak >= 2 && (
+          <div className="mb-4 text-cyan-400 text-[10px] font-black tracking-widest animate-pulse">
+            🔥 {streak} WINS ON FIRE
+          </div>
+        )}
         
-        <div className="flex w-full max-w-sm gap-4 px-8 pb-10">
+        {/* 操作ボタンエリア */}
+        <div className="flex w-full max-w-sm gap-4 px-6 pb-12 z-20">
           {hands.map((hand) => (
             <button
               key={hand.name}
               disabled={isWaiting || !isMatched}
-              className={`flex-1 aspect-square flex flex-col items-center justify-center bg-white/5 border-b-4 border-black rounded-3xl transition-all ${isWaiting ? 'opacity-10 scale-90' : 'active:translate-y-1 active:border-b-0 hover:bg-white/10 hover:border-cyan-500/50'}`}
+              className={`
+                flex-1 aspect-square flex flex-col items-center justify-center 
+                bg-slate-900 border-2 border-white/10 rounded-3xl transition-all
+                shadow-[0_6px_0_0_rgba(0,0,0,0.5)] active:shadow-none active:translate-y-1
+                ${isWaiting ? 'opacity-20 grayscale scale-90' : 'hover:bg-slate-800 hover:border-cyan-500/50'}
+              `}
               onClick={() => handleSelect(hand.label)}
             >
-              <span className="text-3xl mb-1">{hand.icon}</span>
-              <span className="text-[8px] opacity-30 font-bold uppercase">{hand.name}</span>
+              <span className="text-4xl mb-1">{hand.icon}</span>
+              <span className="text-[9px] font-black text-cyan-500/50 uppercase tracking-tighter">{hand.name}</span>
             </button>
           ))}
         </div>
       </div>
       
-      {/* ゲージ */}
+      {/* 左右のゲージ */}
       <div className="absolute left-0 bottom-0 w-1 bg-cyan-500 transition-all duration-500 shadow-[0_0_10px_#06b6d4]" style={{ height: `${(scores.me / 10) * 100}%` }} />
       <div className="absolute right-0 bottom-0 w-1 bg-red-500 transition-all duration-500 shadow-[0_0_10px_#ef4444]" style={{ height: `${(scores.op / 10) * 100}%` }} />
     </main>
